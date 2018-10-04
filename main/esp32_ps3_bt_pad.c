@@ -82,6 +82,8 @@ BYTE sixaxis_ry=ANALOG_STATE_INIT;
 static const char * addr_global_string = "00:1B:FB:EB:FD:55";
 
 static btstack_packet_callback_registration_t hci_event_callback_registration;
+static btstack_packet_callback_registration_t l2cap_control_packet_callback_registration;
+static btstack_packet_callback_registration_t l2cap_interrupt_packet_callback_registration;
 
 uint8_t getsum(void *buf,size_t size)
 {
@@ -567,6 +569,11 @@ static void hid_host_setup(void){
     // register for HCI events
     hci_event_callback_registration.callback = &packet_handler;
     hci_add_event_handler(&hci_event_callback_registration);
+    
+    l2cap_control_packet_callback_registration.callback = &l2cap_control_packet_handler;
+    hci_add_event_handler(&l2cap_control_packet_callback_registration);
+    l2cap_interrupt_packet_callback_registration.callback = &l2cap_interrupt_packet_handler; ;
+    hci_add_event_handler(&l2cap_interrupt_packet_callback_registration);
 
     // Disable stdout buffering
     setbuf(stdout, NULL);
@@ -583,7 +590,7 @@ int btstack_main(int argc, const char * argv[]){
    init_button_state();
    vTaskDelay(100 / portTICK_PERIOD_MS);
    
-//    hid_host_setup();
+    hid_host_setup();
     
    l2cap_init();
    l2cap_register_packet_handler(packet_handler);
