@@ -8,10 +8,9 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "btstack_run_loop_freertos.h"
 
 #define FORMAT_RCB3                  1
-#define USE_SPP_SERVER               1 
+#define USE_SPP_SERVER               1
 #define MAX_ATTRIBUTE_VALUE_SIZE   300
 #define HID_BUFFERSIZE              50
 #define OUTPUT_REPORT_BUFFER_SIZE   48
@@ -47,13 +46,15 @@
 typedef unsigned char           BYTE;
 typedef unsigned short int      WORD;
 
-static uint8_t    rfcomm_send_credit=CREDITS;
 static WORD sixaxis_interrupt_channel_id=0;
 bd_addr_t addr_global;
 static uint8_t startup_state=0;
+#if USE_SPP_SERVER
+static uint8_t    rfcomm_send_credit=CREDITS;
 static uint8_t rfcomm_channel_nr = 1;
 static uint16_t rfcomm_channel_id;
 static uint8_t __attribute__ ((aligned(2))) spp_service_buffer[128];
+#endif
 char lineBuffer[50];
 
 const BYTE OUTPUT_REPORT_BUFFER[] = {
@@ -404,13 +405,13 @@ hci_send_cmd(&hci_delete_stored_link_key,addr_global,1);
                      gap_discoverable_control(1);
                   }
                   startup_state=1;
-//                hci_send_cmd(&hci_write_authentication_enable, 1);
+                  hci_send_cmd(&hci_write_authentication_enable, 1);
                         break;
                }
-//             if (COMMAND_COMPLETE_EVENT(packet, hci_write_authentication_enable)){
-//                hci_discoverable_control(1);
-//                break;
-//             }
+               if (HCI_EVENT_IS_COMMAND_COMPLETE(packet, hci_write_authentication_enable)){
+                  gap_discoverable_control(1);
+                break;
+               }
 #endif
                     break;
             case HCI_EVENT_LINK_KEY_REQUEST:
@@ -584,37 +585,33 @@ int btstack_main(int argc, const char * argv[]){
     (void)argc;
     (void)argv;
 
-   uint8_t nmac[8] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
-   esp_base_mac_addr_set(nmac);
-   
-   init_button_state();
-   vTaskDelay(100 / portTICK_PERIOD_MS);
-   
+    uint8_t nmac[8] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
+    esp_base_mac_addr_set(nmac);
+    
+    init_button_state();
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+    
     hid_host_setup();
-    
-   l2cap_init();
-   l2cap_register_packet_handler(packet_handler);
+    l2cap_init();
+    l2cap_register_packet_handler(packet_handler);
+    l2cap_register_service(l2cap_control_packet_handler, PSM_HID_CONTROL, 160, LEVEL_2);
+    l2cap_register_service(l2cap_interrupt_packet_handler, PSM_HID_INTERRUPT, 160, LEVEL_2);
+#if USE_SPP_SERVER    
+    rfcomm_init();
+    //rfcomm_register_packet_handler(packet_handler);
+    rfcomm_register_service_with_initial_credits(packet_handler, rfcomm_channel_nr, 160, 1);  // reserved channel, mtu=100, 1 credit
+     
+    sdp_init();
  
-   l2cap_register_service(l2cap_control_packet_handler, PSM_HID_CONTROL, 100, LEVEL_2);
-   l2cap_register_service(l2cap_interrupt_packet_handler, PSM_HID_INTERRUPT, 100, LEVEL_2);
-    
-   rfcomm_init();
-   //rfcomm_register_packet_handler(packet_handler);
-   rfcomm_register_service_with_initial_credits(packet_handler, rfcomm_channel_nr, 100, 1);  // reserved channel, mtu=100, 1 credit
-    
-   sdp_init();
-
-// memset(spp_service_buffer, 0, sizeof(spp_service_buffer));
-// service_record_item_t * service_record_item = (service_record_item_t *) spp_service_buffer;
+    memset(spp_service_buffer, 0, sizeof(spp_service_buffer));
     spp_create_sdp_record(spp_service_buffer, 0x10001, 1, "SPP");
-//  printf("SDP service buffer size: %u\n\r", (uint16_t) (sizeof(service_record_item_t) + de_get_len((uint8_t*) &service_record_item->service_record)));
     sdp_register_service(spp_service_buffer);
-
-    // parse human readable Bluetooth address
-    sscanf_bd_addr(addr_global_string, addr_global);
-
-    // Turn on the device 
-    hci_power_control(HCI_POWER_ON);
-    return 0;
+#endif
+     // parse human readable Bluetooth address
+     sscanf_bd_addr(addr_global_string, addr_global);
+ 
+     // Turn on the device 
+     hci_power_control(HCI_POWER_ON);
+     return 0;
 }
 
